@@ -111,6 +111,26 @@ def _connect_source(registry: object, source: str, path: str = "") -> None:
 
             provider = get_provider_for_connector(source)
             if provider is None:
+                # App-password connectors (gmail_imap, outlook, ...) reuse the
+                # "oauth" auth_type for credential storage but have no OAuth
+                # provider: prompt for email + app password instead.
+                if hasattr(instance, "connect_with_credentials"):
+                    help_url = ""
+                    try:
+                        help_url = instance.auth_url()
+                    except Exception:  # noqa: BLE001
+                        help_url = ""
+                    if help_url:
+                        console.print(
+                            f"[yellow]Create an app password at: {help_url}[/yellow]"
+                        )
+                    email_address = click.prompt("Email address")
+                    app_password = click.prompt("App password", hide_input=True)
+                    instance.connect_with_credentials(
+                        email_address, app_password.replace(" ", "")
+                    )
+                    console.print(f"[green]{source} connected successfully.[/green]")
+                    return
                 console.print(f"[red]No OAuth provider configured for {source}.[/red]")
                 return
 
@@ -145,6 +165,18 @@ def _connect_source(registry: object, source: str, path: str = "") -> None:
             instance = connector_cls()
             if instance.is_connected():
                 console.print(f"[green]{source} is already connected.[/green]")
+                return
+
+            if hasattr(instance, "cli_setup"):
+                name = instance.cli_setup(click.prompt, console.print)
+                console.print(f"[green]{source} connected successfully ({name}).[/green]")
+                return
+            if hasattr(instance, "set_token"):
+                token = click.prompt(
+                    f"Enter your {source} personal access token", hide_input=True
+                )
+                instance.set_token(token)
+                console.print(f"[green]{source} connected successfully.[/green]")
                 return
 
             token = click.prompt(f"Enter your {source} personal access token")

@@ -34,25 +34,47 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Matches lines of the form:
-#   1/15/24, 10:30 AM - Sender: Message text
+#   1/15/24, 10:30 AM - Sender: Message text        (US, 12h)
 #   12/31/2024, 9:05 PM - Alice: Some message
+#   16/11/2026 12:41 - Alice: Mensagem               (Android, 24h, e.g. pt-BR)
+#   [16/11/2026, 12:41:05] Alice: Mensagem           (iOS, 24h)
 _LINE_RE = re.compile(
-    r"^(\d{1,2}/\d{1,2}/\d{2,4},\s+\d{1,2}:\d{2}\s*[APap][Mm])\s*-\s*(.+?):\s*(.+)$"
+    r"^\[?(\d{1,2}/\d{1,2}/\d{2,4},?\s+\d{1,2}:\d{2}(?::\d{2})?"
+    r"(?:\s*[APap][Mm])?)(?:\]\s*|\s*-\s*)(.+?):\s*(.+)$"
 )
 
+# Invisible marks WhatsApp inserts in exports (LRM/RLM, BOM) and the narrow
+# no-break space some OS versions put before AM/PM.
+_INVISIBLE_RE = re.compile("[‎‏﻿]")
+_SECONDS_RE = re.compile(r"(\d{1,2}:\d{2}):\d{2}")
+
+
+def _clean_line(line: str) -> str:
+    """Strip invisible marks and normalise exotic spaces in an export line."""
+    line = _INVISIBLE_RE.sub("", line)
+    return line.replace(" ", " ").replace(" ", " ").strip()
+
+
 # Date formats tried in order.  WhatsApp varies by locale/OS version.
+# Timestamps are normalised first (comma and seconds removed).
 _DATE_FORMATS = [
-    "%m/%d/%y, %I:%M %p",  # 1/15/24, 10:30 AM
-    "%m/%d/%Y, %I:%M %p",  # 1/15/2024, 10:30 AM
-    "%d/%m/%y, %I:%M %p",  # 15/1/24, 10:30 AM  (some locales)
-    "%d/%m/%Y, %I:%M %p",  # 15/1/2024, 10:30 AM
+    "%m/%d/%y %I:%M %p",  # 1/15/24, 10:30 AM
+    "%m/%d/%Y %I:%M %p",  # 1/15/2024, 10:30 AM
+    "%d/%m/%y %I:%M %p",  # 15/1/24, 10:30 AM  (some locales)
+    "%d/%m/%Y %I:%M %p",  # 15/1/2024, 10:30 AM
+    # 24-hour exports come from day-first locales (pt-BR, most of Europe).
+    "%d/%m/%Y %H:%M",  # 16/11/2026 12:41
+    "%d/%m/%y %H:%M",  # 16/11/26 12:41
+    "%m/%d/%Y %H:%M",
+    "%m/%d/%y %H:%M",
 ]
 
 
 def _parse_timestamp(ts_str: str) -> Optional[datetime]:
     """Try to parse a WhatsApp timestamp string into a UTC-aware datetime."""
-    # Normalise whitespace in AM/PM (the regex allows optional space)
-    ts_str = ts_str.strip()
+    ts_str = _SECONDS_RE.sub(r"\1", ts_str.strip().replace(",", ""))
+    ts_str = re.sub(r"(\d)([APap][Mm])$", r"\1 \2", ts_str)
+    ts_str = " ".join(ts_str.split())
     for fmt in _DATE_FORMATS:
         try:
             dt = datetime.strptime(ts_str, fmt)
@@ -246,7 +268,8 @@ class WhatsAppConnector(BaseConnector):
         earliest_ts: Optional[datetime] = None
 
         for raw_line in raw.splitlines():
-            m = _LINE_RE.match(raw_line.strip())
+            raw_line = _clean_line(raw_line)
+            m = _LINE_RE.match(raw_line)
             if not m:
                 # System message or continuation line — append to previous
                 if lines:
