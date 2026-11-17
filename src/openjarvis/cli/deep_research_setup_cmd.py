@@ -76,6 +76,30 @@ def detect_local_sources(
             }
         )
 
+    # WhatsApp chat exports (.txt) dropped into ~/.openjarvis/whatsapp_exports
+    whatsapp_dir = DEFAULT_CONFIG_DIR / "whatsapp_exports"
+    if whatsapp_dir.is_dir() and any(whatsapp_dir.glob("*.txt")):
+        sources.append(
+            {
+                "connector_id": "whatsapp",
+                "display_name": "WhatsApp (exports)",
+                "config": {"export_path": str(whatsapp_dir)},
+            }
+        )
+
+    # Official LinkedIn data export (.zip or .csv) in ~/.openjarvis/linkedin_export
+    linkedin_dir = DEFAULT_CONFIG_DIR / "linkedin_export"
+    if linkedin_dir.is_dir() and (
+        any(linkedin_dir.rglob("*.csv")) or any(linkedin_dir.rglob("*.zip"))
+    ):
+        sources.append(
+            {
+                "connector_id": "linkedin",
+                "display_name": "LinkedIn (export)",
+                "config": {"export_path": str(linkedin_dir)},
+            }
+        )
+
     if obsidian_vault_path and obsidian_vault_path.is_dir():
         sources.append(
             {
@@ -98,6 +122,18 @@ _TOKEN_SOURCES = [
         "display_name": "Gmail (IMAP)",
         "creds_file": "gmail_imap.json",
         "prompt_label": "email:app_password",
+    },
+    {
+        "connector_id": "shopify",
+        "display_name": "Shopify",
+        "creds_file": "shopify.json",
+        "prompt_label": "use: jarvis connect shopify",
+    },
+    {
+        "connector_id": "github_notifications",
+        "display_name": "GitHub Notifications",
+        "creds_file": "github.json",
+        "prompt_label": "use: jarvis connect github_notifications",
     },
     {
         "connector_id": "outlook",
@@ -220,6 +256,24 @@ def _instantiate_connector(connector_id: str, config: Dict[str, Any]) -> Any:
         from openjarvis.connectors.obsidian import ObsidianConnector
 
         return ObsidianConnector(vault_path=config.get("vault_path", ""))
+    elif connector_id == "whatsapp":
+        from openjarvis.connectors.whatsapp import WhatsAppConnector
+
+        return WhatsAppConnector(export_path=config.get("export_path", ""))
+    elif connector_id == "linkedin":
+        from openjarvis.connectors.linkedin_export import LinkedInExportConnector
+
+        return LinkedInExportConnector(export_path=config.get("export_path", ""))
+    elif connector_id == "shopify":
+        from openjarvis.connectors.shopify import ShopifyConnector
+
+        return ShopifyConnector()
+    elif connector_id == "github_notifications":
+        from openjarvis.connectors.github_notifications import (
+            GitHubNotificationsConnector,
+        )
+
+        return GitHubNotificationsConnector()
     elif connector_id == "gmail_imap":
         from openjarvis.connectors.gmail_imap import GmailIMAPConnector
 
